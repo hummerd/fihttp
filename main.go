@@ -13,9 +13,10 @@ import (
 )
 
 type Config struct {
-	Root    string
-	Port    string
-	FileRef string
+	Root       string
+	Port       string
+	FileRef    string
+	StaticPath string
 }
 
 type PathData struct {
@@ -36,38 +37,46 @@ const (
 	ftOther = 10000
 )
 
-var root string
-var fileRef string
+var conf Config
 var videoSuffix = [...]string{"mov", "mkv", "avi", "mp4"}
 
 func main() {
-	file, err := os.Open("/etc/fihttp.conf")
+	if len(os.Args) < 2 {
+		log4go.Exit("Specify config path as first argument")
+	}
+
+	confFile := os.Args[1]
+	_, err := os.Stat(confFile)
 	if err != nil {
-		log4go.Exitf("Unable to open conf file: %s", err)
+		log4go.Exitf("Cannot find conf file: %s args: %s", err, os.Args)
+	}
+
+	file, err := os.Open(confFile)
+	if err != nil {
+		log4go.Exitf("Unable to open conf file: %s args: %s", err, os.Args)
 	}
 
 	decoder := json.NewDecoder(file)
-	configuration := Config{}
-	err = decoder.Decode(&configuration)
+	conf = Config{}
+	err = decoder.Decode(&conf)
 
+	file.Close()
 	if _, ok := err.(*json.InvalidUnmarshalError); err != nil && !ok {
-		log4go.Exitf("Unable to parse conf: %s", err)
+		log4go.Exitf("Unable to parse conf: %s args: %s", err, os.Args)
 	}
-
-	root = configuration.Root
-	fileRef = configuration.FileRef
 
 	http.HandleFunc("/", app)
 	http.HandleFunc("/cont", cont)
 	http.HandleFunc("/stop", stop)
-	err = http.ListenAndServe(":"+configuration.Port, nil)
+	err = http.ListenAndServe(":"+conf.Port, nil)
 	if err != nil {
 		log4go.Exitf("ListenAndServe fails %s", err)
 	}
 }
 
 func app(w http.ResponseWriter, r *http.Request) {
-	http.ServeFile(w, r, "index.html")
+	ap := path.Join(conf.StaticPath, "index.html")
+	http.ServeFile(w, r, ap)
 }
 
 func stop(w http.ResponseWriter, r *http.Request) {
@@ -86,7 +95,7 @@ func cont(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ap := root
+	ap := conf.Root
 	reqParams.Path = strings.Trim(reqParams.Path, "/")
 	if reqParams.Path != "" && reqParams.Path != "root" {
 		rp := strings.Replace(reqParams.Path, "root/", "", 1)
@@ -111,7 +120,7 @@ func cont(w http.ResponseWriter, r *http.Request) {
 	decoder.Encode(reqParams.Path)
 
 	fmt.Fprint(w, ",\n\"FileRef\": ")
-	decoder.Encode(fileRef)
+	decoder.Encode(conf.FileRef)
 
 	fmt.Fprint(w, ",\n\"Files\": [")
 
